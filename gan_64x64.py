@@ -20,11 +20,11 @@ import tflib.plot
 
 # Download 64x64 ImageNet at http://image-net.org/small/download.php and
 # fill in the path to the extracted files here!
-DATA_DIR = ''
-if len(DATA_DIR) == 0:
-    raise Exception('Please specify path to data directory in gan_64x64.py!')
+DATA_DIR = '/home/daniel/autoencoding_beyond_pixels/datasets/celeba/img_align_celeba-60x72'
+#if len(DATA_DIR) == 0:
+#    raise Exception('Please specify path to data directory in gan_64x64.py!')
 
-MODE = 'wgan-gp' # dcgan, wgan, wgan-gp, lsgan
+MODE = 'wgan' # dcgan, wgan, wgan-gp, lsgan
 DIM = 64 # Model dimensionality
 CRITIC_ITERS = 5 # How many iterations to train the critic for
 N_GPUS = 1 # Number of GPUs
@@ -560,7 +560,8 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         raise Exception()
 
     # For generating samples
-    fixed_noise = tf.constant(np.random.normal(size=(BATCH_SIZE, 128)).astype('float32'))
+    #fixed_noise = tf.constant(np.random.normal(size=(BATCH_SIZE, 128)).astype('float32'))
+    fixed_noise = tf.random_normal(shape=(BATCH_SIZE, 128), dtype='float32')
     all_fixed_noise_samples = []
     for device_index, device in enumerate(DEVICES):
         n_samples = BATCH_SIZE / len(DEVICES)
@@ -573,10 +574,43 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         samples = session.run(all_fixed_noise_samples)
         samples = ((samples+1.)*(255.99/2)).astype('int32')
         lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), 'samples_{}.png'.format(iteration))
+        
+        avgs = []
+
+        for i in range(1000):
+            if i%100 == 0:
+                print('Generating test samples: %d of %d' % (i, 1000))
+            noise = tf.random_normal(shape=(BATCH_SIZE, 128), dtype='float32')
+            imgs = generate_image_samples(noise)
+            #print imgs.shape
+            avgs.append(np.average(imgs, axis=1))
+
+        avgs = np.array(avgs)
+        print avgs.shape
+        np.save('generated_avgs_%d.npy' % iteration, avgs)
+            
+        #np.save('generated_%d.npy' % iteration, samples)
+#        print all_fixed_noise_samples
+        
+
+
+    def generate_image_samples(noise):
+        samples = Generator(n_samples, noise=noise)
+        samples = session.run(samples)
+        samples = ((samples+1.)*(255.99/2)).astype('int32')
+        return samples
 
 
     # Dataset iterator
-    train_gen, dev_gen = lib.small_imagenet.load(BATCH_SIZE, data_dir=DATA_DIR)
+    # train_gen, dev_gen = lib.small_imagenet.load(BATCH_SIZE, data_dir=DATA_DIR)
+
+    def gen_images():
+        while True:
+            r = np.random.randint(0, 255, size=BATCH_SIZE)
+            yield [np.array([np.full((3, 64, 64), i) for i in r])]
+
+    train_gen = gen_images
+    dev_gen = gen_images
 
     def inf_train_gen():
         while True:
@@ -591,7 +625,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
 
     # Train loop
-    session.run(tf.initialize_all_variables())
+    session.run(tf.global_variables_initializer())
     gen = inf_train_gen()
     for iteration in xrange(ITERS):
 
@@ -623,9 +657,11 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                 dev_disc_costs.append(_dev_disc_cost)
             lib.plot.plot('dev disc cost', np.mean(dev_disc_costs))
 
+        if iteration % 10 == 9:
             generate_image(iteration)
 
-        if (iteration < 5) or (iteration % 200 == 199):
+        #if (iteration < 5) or (iteration % 50 == 49):
+        if True:
             lib.plot.flush()
 
         lib.plot.tick()
